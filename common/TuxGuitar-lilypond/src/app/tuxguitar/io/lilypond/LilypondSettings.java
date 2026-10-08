@@ -20,9 +20,12 @@ public class LilypondSettings {
 	private boolean tablatureEnabled;
 	private boolean lyricsEnabled;
 	private boolean chordDiagramEnabled;
+	private boolean chordNameEnabled;
 	private boolean textEnabled;
 
 	private LilypondStyle style;
+
+	private LilypondDensity density;
 
 	public LilypondSettings(){
 		super();
@@ -108,6 +111,14 @@ public class LilypondSettings {
 		this.chordDiagramEnabled = chordDiagramEnabled;
 	}
 
+	public boolean isChordNameEnabled() {
+		return this.chordNameEnabled;
+	}
+
+	public void setChordNameEnabled(boolean chordNameEnabled) {
+		this.chordNameEnabled = chordNameEnabled;
+	}
+
 	public boolean isTextEnabled() {
 		return this.textEnabled;
 	}
@@ -122,6 +133,14 @@ public class LilypondSettings {
 
 	public void setStyle(LilypondStyle style) {
 		this.style = style;
+	}
+
+	public LilypondDensity getDensity() {
+		return (this.density == null ? LilypondDensity.DEFAULT_DENSITY : this.density);
+	}
+
+	public void setDensity(LilypondDensity density) {
+		this.density = density;
 	}
 
 	public void check(){
@@ -141,9 +160,11 @@ public class LilypondSettings {
 		settings.setTextEnabled(true);
 		settings.setLyricsEnabled(true);
 		settings.setChordDiagramEnabled(true);
+		settings.setChordNameEnabled(true);
 		settings.setTrackNameEnabled(true);
 		settings.setTrackGroupEnabled(false);
 		settings.setStyle(LilypondStyle.DEFAULT_STYLE);
+		settings.setDensity(LilypondDensity.DEFAULT_DENSITY);
 		settings.setLilypondVersion("2.14.0");
 		return settings;
 	}

@@ -124,8 +124,25 @@ public class LilypondOutputStream {
 		this.writer.println(indent(1) + "ragged-bottom = #" + getLilypondBoolean(true));
 
 		this.addStyle();
+		this.addDensity();
 
 		this.writer.println("}");
+	}
+
+	private void addDensity(){
+		LilypondDensity density = this.settings.getDensity();
+		if( density == null || density == LilypondDensity.DEFAULT || !isVersionAtLeast("2.18") ){
+			return;
+		}
+
+		boolean airy = (density == LilypondDensity.AIRY);
+
+		// Vertical distance between systems, and between a header and the first system.
+		this.writer.println(indent(1) + "system-system-spacing.basic-distance = #" + (airy ? 20 : 8));
+		this.writer.println(indent(1) + "system-system-spacing.padding = #" + (airy ? 8 : 2));
+		this.writer.println(indent(1) + "system-system-spacing.minimum-distance = #" + (airy ? 22 : 10));
+		this.writer.println(indent(1) + "markup-system-spacing.basic-distance = #" + (airy ? 14 : 6));
+		this.writer.println(indent(1) + "markup-system-spacing.padding = #" + (airy ? 6 : 2));
 	}
 
 	private void addStyle(){
@@ -180,6 +197,18 @@ public class LilypondOutputStream {
 		return (current != null && current.compareTo(version) >= 0);
 	}
 
+	/** Distance between the notation staff and its tablature, i.e. inside one system. */
+	private void addStaffGroupSpacing(){
+		LilypondDensity density = this.settings.getDensity();
+		if( density == null || density == LilypondDensity.DEFAULT || !isVersionAtLeast("2.18") ){
+			return;
+		}
+
+		boolean airy = (density == LilypondDensity.AIRY);
+		this.writer.println(indent(2) + "\\override StaffGrouper.staff-staff-spacing.basic-distance = #" + (airy ? 14 : 6));
+		this.writer.println(indent(2) + "\\override StaffGrouper.staff-staff-spacing.padding = #" + (airy ? 4 : 1));
+	}
+
 	private void addHeader(TGSong song, String instrument, int indent){
 		this.writer.println(indent(indent) + "\\header {");
 		this.writer.println(indent(indent + 1) + "title = \"" + song.getName() + "\" ");
@@ -212,6 +241,7 @@ public class LilypondOutputStream {
 		}
 		this.writer.println(indent(1) + "\\context { \\StaffGroup");
 		this.writer.println(indent(2) + "\\consists \"Instrument_name_engraver\"");
+		this.addStaffGroupSpacing();
 		this.writer.println(indent(1) + "}");
 		this.writer.println("}");
 	}
@@ -288,6 +318,7 @@ public class LilypondOutputStream {
 	private void addScoreStaff(TGTrack track,String id){
 		boolean addLyrics = (this.settings.isLyricsEnabled() && !this.settings.isTablatureEnabled() && !track.getLyrics().isEmpty());
 		boolean addChordDiagrams = this.settings.isChordDiagramEnabled();
+		boolean addChordNames = this.settings.isChordNameEnabled();
 		boolean addTexts = this.settings.isTextEnabled();
 
 		this.writer.println(id + "Staff = \\new Staff <<" );
@@ -297,6 +328,9 @@ public class LilypondOutputStream {
 			this.writer.println(indent(1) + "\\context Voice = \"" + vId + "\" {");
 			if(!addChordDiagrams){
 				this.writer.println(indent(2) + "\\removeWithTag #'chords");
+			}
+			if(!addChordNames){
+				this.writer.println(indent(2) + "\\removeWithTag #'chordnames");
 			}
 			if(!addTexts){
 				this.writer.println(indent(2) + "\\removeWithTag #'texts");
@@ -315,6 +349,7 @@ public class LilypondOutputStream {
 	private void addTabStaff(TGTrack track,String id){
 		boolean addLyrics = (this.settings.isLyricsEnabled() && !track.getLyrics().isEmpty());
 		boolean addChordDiagrams = (this.settings.isChordDiagramEnabled() && !this.settings.isScoreEnabled());
+		boolean addChordNames = (this.settings.isChordNameEnabled() && !this.settings.isScoreEnabled());
 		boolean addTexts = (this.settings.isTextEnabled() && !this.settings.isScoreEnabled());
 
 		this.writer.println(id + "TabStaff = \\new TabStaff " + getLilypondTuning(track) + " <<" );
@@ -324,6 +359,9 @@ public class LilypondOutputStream {
 			this.writer.println(indent(1) + "\\context TabVoice = \"" + vId + "\" {");
 			if(!addChordDiagrams){
 				this.writer.println(indent(2) + "\\removeWithTag #'chords");
+			}
+			if(!addChordNames){
+				this.writer.println(indent(2) + "\\removeWithTag #'chordnames");
 			}
 			if(!addTexts){
 				this.writer.println(indent(2) + "\\removeWithTag #'texts");
@@ -634,6 +672,13 @@ public class LilypondOutputStream {
 					this.writer.print((i + 1) + "-" + getLilypondChordFret(chord.getFretValue( i )) + ";");
 				}
 				this.writer.print("\"");
+
+				// The diagram shows the shape, the name is what a player actually reads. Guitar Pro
+				// stores the name, the exporter used to throw it away.
+				String chordName = chord.getName();
+				if( chordName != null && chordName.trim().length() > 0 ){
+					this.writer.print("-\\tag #'chordnames ^\\markup { \\fontsize #0.5 \"" + chordName.trim() + "\" }");
+				}
 			}
 		}
 
