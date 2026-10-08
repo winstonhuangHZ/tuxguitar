@@ -184,6 +184,11 @@ public class LilypondSettingsDialog {
 		chordDiagramsCheck.setText(TuxGuitar.getProperty("lilypond.options.layout.enable-chord-diagrams"));
 		layoutGroupLayout.set(chordDiagramsCheck, 7, 1, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_CENTER, true, false);
 
+		final UICheckBox chordNamesCheck = uiFactory.createCheckBox(layoutGroup);
+		chordNamesCheck.setSelected(settings.isChordNameEnabled());
+		chordNamesCheck.setText(TuxGuitar.getProperty("lilypond.options.layout.enable-chord-names"));
+		layoutGroupLayout.set(chordNamesCheck, 8, 1, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_CENTER, true, false);
+
 		tablatureCheck.addSelectionListener(new UISelectionListener() {
 			public void onSelect(UISelectionEvent event) {
 				if(!tablatureCheck.isSelected()){
@@ -206,6 +211,35 @@ public class LilypondSettingsDialog {
 			}
 		});
 
+		//------------------ENGRAVING------------------------
+		UITableLayout engravingLayout = new UITableLayout();
+		UILegendPanel engravingGroup = uiFactory.createLegendPanel(columnRight);
+		engravingGroup.setLayout(engravingLayout);
+		engravingGroup.setText(TuxGuitar.getProperty("lilypond.options.engraving.tip"));
+		columnRightLayout.set(engravingGroup, 3, 1, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_FILL, true, true);
+
+		final UILabel styleLabel = uiFactory.createLabel(engravingGroup);
+		styleLabel.setText(TuxGuitar.getProperty("lilypond.options.engraving.style") + ":");
+		engravingLayout.set(styleLabel, 1, 1, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_CENTER, false, false);
+
+		final UIDropDownSelect<LilypondStyle> styleCombo = uiFactory.createDropDownSelect(engravingGroup);
+		for(LilypondStyle style : LilypondStyle.values()){
+			styleCombo.addItem(new UISelectItem<LilypondStyle>(TuxGuitar.getProperty("lilypond.style." + style.getCode()), style));
+		}
+		styleCombo.setSelectedValue(settings.getStyle());
+		engravingLayout.set(styleCombo, 1, 2, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_FILL, true, false, 1, 1, 140f, null, null);
+
+		final UILabel densityLabel = uiFactory.createLabel(engravingGroup);
+		densityLabel.setText(TuxGuitar.getProperty("lilypond.options.engraving.density") + ":");
+		engravingLayout.set(densityLabel, 2, 1, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_CENTER, false, false);
+
+		final UIDropDownSelect<LilypondDensity> densityCombo = uiFactory.createDropDownSelect(engravingGroup);
+		for(LilypondDensity density : LilypondDensity.values()){
+			densityCombo.addItem(new UISelectItem<LilypondDensity>(TuxGuitar.getProperty("lilypond.density." + density.getCode()), density));
+		}
+		densityCombo.setSelectedValue(settings.getDensity());
+		engravingLayout.set(densityCombo, 2, 2, UITableLayout.ALIGN_FILL, UITableLayout.ALIGN_FILL, true, false, 1, 1, 140f, null, null);
+
 		//------------------BUTTONS--------------------------
 		UITableLayout buttonsLayout = new UITableLayout(0f);
 		UIPanel buttons = uiFactory.createPanel(dialog, false);
@@ -227,6 +261,17 @@ public class LilypondSettingsDialog {
 				settings.setScoreEnabled(scoreCheck.isSelected());
 				settings.setTablatureEnabled(tablatureCheck.isSelected());
 				settings.setChordDiagramEnabled(chordDiagramsCheck.isSelected());
+				settings.setChordNameEnabled(chordNamesCheck.isSelected());
+
+				LilypondStyle selectedStyle = styleCombo.getSelectedValue();
+				if( selectedStyle != null ){
+					settings.setStyle(selectedStyle);
+				}
+				LilypondDensity selectedDensity = densityCombo.getSelectedValue();
+				if( selectedDensity != null ){
+					settings.setDensity(selectedDensity);
+				}
+
 				settings.setLyricsEnabled(lyricsCheck.isSelected());
 				settings.setTextEnabled(textsCheck.isSelected());
 				settings.setLilypondVersion(lilyVersion.getText());
