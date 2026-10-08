@@ -22,6 +22,8 @@ public class LilypondSettings {
 	private boolean chordDiagramEnabled;
 	private boolean textEnabled;
 
+	private LilypondStyle style;
+
 	public LilypondSettings(){
 		super();
 	}
@@ -114,6 +116,14 @@ public class LilypondSettings {
 		this.textEnabled = textEnabled;
 	}
 
+	public LilypondStyle getStyle() {
+		return (this.style == null ? LilypondStyle.DEFAULT_STYLE : this.style);
+	}
+
+	public void setStyle(LilypondStyle style) {
+		this.style = style;
+	}
+
 	public void check(){
 		if(!this.isScoreEnabled() && !this.isTablatureEnabled()){
 			this.setScoreEnabled( true );
@@ -133,6 +143,7 @@ public class LilypondSettings {
 		settings.setChordDiagramEnabled(true);
 		settings.setTrackNameEnabled(true);
 		settings.setTrackGroupEnabled(false);
+		settings.setStyle(LilypondStyle.DEFAULT_STYLE);
 		settings.setLilypondVersion("2.14.0");
 		return settings;
 	}

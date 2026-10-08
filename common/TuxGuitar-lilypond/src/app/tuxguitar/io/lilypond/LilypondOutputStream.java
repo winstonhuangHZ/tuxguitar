@@ -25,6 +25,7 @@ import app.tuxguitar.song.models.TGTrack;
 import app.tuxguitar.song.models.TGDivisionType;
 import app.tuxguitar.song.models.TGVoice;
 import app.tuxguitar.song.models.effects.TGEffectGrace;
+import app.tuxguitar.song.models.effects.TGEffectBend;
 
 public class LilypondOutputStream {
 
@@ -121,7 +122,62 @@ public class LilypondOutputStream {
 		}
 		this.writer.println(indent(1) + "ragged-right = #" + getLilypondBoolean(false));
 		this.writer.println(indent(1) + "ragged-bottom = #" + getLilypondBoolean(true));
+
+		this.addStyle();
+
 		this.writer.println("}");
+	}
+
+	private void addStyle(){
+		LilypondStyle style = this.settings.getStyle();
+		if( style == null || style == LilypondStyle.LILYPOND_DEFAULT ){
+			return;
+		}
+
+		boolean sans = (style == LilypondStyle.MODERN_SANS);
+		String roman = (sans ? "Latin Modern Sans" : "Latin Modern Roman");
+		String sansFace = "Latin Modern Sans";
+		String mono = "Latin Modern Mono";
+
+		if( isVersionAtLeast("2.25.4") ){
+			// make-pango-font-tree was removed in 2.25.4; font selection is now independent of the
+			// font size, so the old (/ staff-height pt 20) factor has no equivalent here.
+			this.writer.println(indent(1) + "fonts.roman = \"" + roman + "\"");
+			this.writer.println(indent(1) + "fonts.sans = \"" + sansFace + "\"");
+			this.writer.println(indent(1) + "fonts.typewriter = \"" + mono + "\"");
+		}
+		else {
+			this.writer.println(indent(1) + "#(define fonts");
+			this.writer.println(indent(2) + "(make-pango-font-tree");
+			this.writer.println(indent(3) + "\"" + roman + "\"");
+			this.writer.println(indent(3) + "\"" + sansFace + "\"");
+			this.writer.println(indent(3) + "\"" + mono + "\"");
+			this.writer.println(indent(3) + "(/ staff-height pt 20)))");
+		}
+
+		// This exporter always sets print-all-headers, so scoreTitleMarkup is the one that is
+		// actually printed on the page. The default puts the title in bold display type; this
+		// version keeps the size but drops the weight, which is what makes the page read as
+		// heavy or clean.
+		this.writer.println(indent(1) + "scoreTitleMarkup = \\markup {");
+		this.writer.println(indent(2) + "\\override #'(baseline-skip . 2.9)");
+		this.writer.println(indent(2) + "\\column {");
+		this.writer.println(indent(3) + "\\fill-line {");
+		this.writer.println(indent(4) + "\\fontsize #2.4 \\fromproperty #'header:title");
+		this.writer.println(indent(3) + "}");
+		this.writer.println(indent(3) + "\\vspace #0.4");
+		this.writer.println(indent(3) + "\\fill-line {");
+		this.writer.println(indent(4) + "\\fontsize #-0.5 \\fromproperty #'header:instrument");
+		this.writer.println(indent(4) + "\\fontsize #-0.5 \\fromproperty #'header:composer");
+		this.writer.println(indent(3) + "}");
+		this.writer.println(indent(2) + "}");
+		this.writer.println(indent(1) + "}");
+
+	}
+
+	private boolean isVersionAtLeast(String version){
+		String current = this.settings.getLilypondVersion();
+		return (current != null && current.compareTo(version) >= 0);
 	}
 
 	private void addHeader(TGSong song, String instrument, int indent){
@@ -506,6 +562,8 @@ public class LilypondOutputStream {
 	}
 
 	private void addBeat(int key,TGBeat beat, TGVoice voice){
+		int ottava = 0;
+
 		if(voice.isRestVoice()){
 			boolean skip = false;
 			for( int v = 0 ; v < beat.countVoices() ; v ++ ){
@@ -524,7 +582,6 @@ public class LilypondOutputStream {
 
 			int size = voice.countNotes();
 
-			int ottava = 0;
 			for(int i = 0 ; i < size ; i ++){
 				TGNote note = voice.getNote(i);
 				int thisnote = beat.getMeasure().getTrack().getString(note.getString()).getValue() + note.getValue();
@@ -561,9 +618,6 @@ public class LilypondOutputStream {
 			this.addDuration( voice.getDuration() );
 			this.addEffectsOnDuration( voice );
 			this.addEffectsOnBeat( voice );
-			if (ottava != 0) {
-				this.addOttava(0);
-			}
 		}
 
 		// Add Chord, if was not previously added in another voice
@@ -592,6 +646,12 @@ public class LilypondOutputStream {
 			if( !skip ){
 				this.writer.print("-\\tag #'texts ^\\markup {\"" + beat.getText().getValue() + "\"}");
 			}
+		}
+
+		// The ottava must be closed after the chord/text markup above, otherwise those post events
+		// have no note to attach to and LilyPond drops them ("Unattached TextScriptEvent").
+		if (ottava != 0) {
+			this.addOttava(0);
 		}
 
 		// Check if it's a lyric beat to skip
@@ -634,15 +694,30 @@ public class LilypondOutputStream {
 		if( effect.isGhostNote() ){
 			this.writer.print("\\parenthesize ");
 		}
-		if( effect.isBend() ){
-			this.writer.print("\\bendAfter #+6 ");
-		}
 	}
 
 	private void addEffectsOnNote(TGNoteEffect effect){
+		// \bendAfter is a post event: it has to follow the note it belongs to. Printing it in front
+		// of the note (and therefore inside the < ... > of a chord) made LilyPond discard it with
+		// "Dropping unattachable BendAfterEvent".
+		if( effect.isBend() ){
+			this.writer.print("\\bendAfter #" + getLilypondBendValue(effect) + " ");
+		}
 		if( effect.isHarmonic() ){
 			this.writer.print("\\harmonic");
 		}
+	}
+
+	private int getLilypondBendValue(TGNoteEffect effect){
+		// TuxGuitar measures bend amounts in quarter tones (a whole tone bend is
+		// SEMITONE_LENGTH * 4) and LilyPond's \bendAfter uses the same unit, so the value is
+		// reused as is. The peak point is taken because a single arrow cannot describe a
+		// bend-and-release curve.
+		int value = 0;
+		for (TGEffectBend.BendPoint point : effect.getBend().getPoints()) {
+			value = Math.max(value, point.getValue());
+		}
+		return (value == 0 ? 4 : value);
 	}
 
 	private void addEffectsOnDuration(TGVoice voice){
