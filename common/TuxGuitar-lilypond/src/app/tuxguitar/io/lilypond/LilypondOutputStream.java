@@ -50,6 +50,16 @@ public class LilypondOutputStream {
 
 	private LilypondTempData temp;
 
+	// Hammer-on and pull-off flags are stored on the note being hammered into, but the slur has to
+	// open on the note before it, so the decision for a beat is taken one beat ahead of printing.
+	private boolean slurStart;
+	private boolean slurEnd;
+
+	// Let ring belongs to a passage, not to every single note: only the note starting a run gets a
+	// laissez vibrer mark.
+	private boolean letRingStart;
+	private boolean lastBeatLetRing;
+
 	public LilypondOutputStream(OutputStream stream,LilypondSettings settings){
 		this.durations = new HashMap<Integer, String>();
 		this.durations.put(TGDuration.WHOLE, "1");
@@ -298,6 +308,7 @@ public class LilypondOutputStream {
 
 	private void addMusic(TGSong song, TGTrack track,String id){
 		for( int voice = 0 ; voice < TGBeat.MAX_VOICES ; voice ++ ){
+			this.lastBeatLetRing = false;
 			if( track.isPercussion() ){
 				// Drum notes such as sn or hho are only note names inside \drummode, they cannot be
 				// written in a plain #{ ... #} block.
@@ -608,11 +619,24 @@ public class LilypondOutputStream {
 					this.temp.setDivisionTypeOpen(true);
 				}
 
+				// Hammer-on and pull-off: a slur spans a whole run, so it opens on the note before
+				// the first hammered note and closes on the last one. Let ring is handled the same
+				// way, one mark at the start of each run rather than one per note.
+				boolean currentHammer = this.hasHammer( voice );
+				boolean nextHammer = this.hammerAfter( measure, vIndex, i );
+				this.slurStart = ( !currentHammer && nextHammer );
+				this.slurEnd = ( currentHammer && !nextHammer );
+
+				boolean currentLetRing = this.hasLetRing( voice );
+				this.letRingStart = ( currentLetRing && !this.lastBeatLetRing );
+				this.lastBeatLetRing = currentLetRing;
+
 				this.addBeat(key, beat, voice);
 
 				previous = beat;
 			}
 		}
+
 		// It Means that all voice beats are empty
 		if( previous == null ){
 			this.writer.print("\\skip ");
@@ -729,6 +753,15 @@ public class LilypondOutputStream {
 
 		// The ottava must be closed after the chord/text markup above, otherwise those post events
 		// have no note to attach to and LilyPond drops them ("Unattached TextScriptEvent").
+		if( this.slurStart ){
+			this.writer.print("(");
+		}
+		if( this.slurEnd ){
+			this.writer.print(")");
+		}
+		if( this.letRingStart ){
+			this.writer.print("\\laissezVibrer");
+		}
 		if (ottava != 0) {
 			this.addOttava(0);
 		}
@@ -824,6 +857,50 @@ public class LilypondOutputStream {
 		if( effect.isHarmonic() ){
 			this.writer.print("\\harmonic");
 		}
+		if( effect.isTapping() ){
+			this.writer.print("-\\markup { \\fontsize #-1 \"T\" }");
+		}
+	}
+
+	private boolean hasHammer(TGVoice voice){
+		for(int i = 0 ; i < voice.countNotes() ; i ++){
+			if( voice.getNote(i).getEffect().isHammer() ){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean hasLetRing(TGVoice voice){
+		for(int i = 0 ; i < voice.countNotes() ; i ++){
+			if( voice.getNote(i).getEffect().isLetRing() ){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Whether the next sounding note of this voice is hammered into, possibly across a barline. */
+	private boolean hammerAfter(TGMeasure measure,int vIndex,int beatIndex){
+		for(int i = beatIndex + 1 ; i < measure.countBeats() ; i ++){
+			TGVoice voice = measure.getBeat(i).getVoice(vIndex);
+			if( !voice.isEmpty() ){
+				return this.hasHammer(voice);
+			}
+		}
+
+		TGTrack track = measure.getTrack();
+		int nextMeasureIndex = measure.getNumber();
+		if( nextMeasureIndex < track.countMeasures() ){
+			TGMeasure nextMeasure = track.getMeasure(nextMeasureIndex);
+			for(int i = 0 ; i < nextMeasure.countBeats() ; i ++){
+				TGVoice voice = nextMeasure.getBeat(i).getVoice(vIndex);
+				if( !voice.isEmpty() ){
+					return this.hasHammer(voice);
+				}
+			}
+		}
+		return false;
 	}
 
 	private int getLilypondBendValue(TGNoteEffect effect){
