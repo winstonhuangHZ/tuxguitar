@@ -221,6 +221,11 @@ public class LilypondOutputStream {
 
 	private void addLayout(){
 		this.writer.println("\\layout {");
+		// Without this the line breaker can end up with a last line whose natural width already
+		// exceeds the line width, and it then spills over the right margin. Letting the final
+		// system keep its natural width is the documented remedy and does not affect the
+		// justification of the systems above it.
+		this.writer.println(indent(1) + "ragged-last = ##t");
 		this.writer.println(indent(1) + "\\context { \\Score");
 		this.writer.println(indent(2) + "\\override MetronomeMark #'padding = #'5");
 		this.writer.println(indent(1) + "}");
@@ -293,8 +298,15 @@ public class LilypondOutputStream {
 
 	private void addMusic(TGSong song, TGTrack track,String id){
 		for( int voice = 0 ; voice < TGBeat.MAX_VOICES ; voice ++ ){
-			this.writer.println(trackVoiceID(voice,id,"Music") + " = #(define-music-function (parser location inTab) (boolean?)");
-			this.writer.println("#{");
+			if( track.isPercussion() ){
+				// Drum notes such as sn or hho are only note names inside \drummode, they cannot be
+				// written in a plain #{ ... #} block.
+				this.writer.println(trackVoiceID(voice,id,"Music") + " = \\drummode {");
+			}
+			else {
+				this.writer.println(trackVoiceID(voice,id,"Music") + " = #(define-music-function (parser location inTab) (boolean?)");
+				this.writer.println("#{");
+			}
 			if( this.isVoiceAvailable( track , voice ) ){
 				TGMeasure previous = null;
 				int count = track.countMeasures();
@@ -311,7 +323,7 @@ public class LilypondOutputStream {
 				this.writer.println(indent(1) + "\\bar \"|.\"");
 				this.writer.println(indent(1) + "\\pageBreak");
 			}
-			this.writer.println("#})");
+			this.writer.println( track.isPercussion() ? "}" : "#})" );
 		}
 	}
 
@@ -321,11 +333,12 @@ public class LilypondOutputStream {
 		boolean addChordNames = this.settings.isChordNameEnabled();
 		boolean addTexts = this.settings.isTextEnabled();
 
-		this.writer.println(id + "Staff = \\new Staff <<" );
+		boolean percussion = track.isPercussion();
+		this.writer.println(id + "Staff = \\new " + (percussion ? "DrumStaff" : "Staff") + " <<" );
 
 		for( int v = 0 ; v < TGBeat.MAX_VOICES ; v ++ ){
 			String vId =  trackVoiceID(v, id, "Music") ;
-			this.writer.println(indent(1) + "\\context Voice = \"" + vId + "\" {");
+			this.writer.println(indent(1) + "\\context " + (percussion ? "DrumVoice" : "Voice") + " = \"" + vId + "\" {");
 			if(!addChordDiagrams){
 				this.writer.println(indent(2) + "\\removeWithTag #'chords");
 			}
@@ -335,11 +348,11 @@ public class LilypondOutputStream {
 			if(!addTexts){
 				this.writer.println(indent(2) + "\\removeWithTag #'texts");
 			}
-			this.writer.println(indent(2) + "\\" + vId + " #" + getLilypondBoolean( false ) );
+			this.writer.println(indent(2) + "\\" + vId + (percussion ? "" : " #" + getLilypondBoolean( false )) );
 			this.writer.println(indent(1) + "}");
 		}
 
-		if(addLyrics){
+		if(addLyrics && !percussion){
 			this.writer.println(indent(1) + "\\new Lyrics \\lyricsto \"" + trackVoiceID(0, id, "Music") + "\" \\" + id + "Lyrics");
 		}
 
@@ -347,6 +360,12 @@ public class LilypondOutputStream {
 	}
 
 	private void addTabStaff(TGTrack track,String id){
+		// A drum kit has no strings, so a tablature for it is meaningless. Without this guard the
+		// exporter printed a six line tab of raw General MIDI percussion numbers.
+		if( track.isPercussion() ){
+			return;
+		}
+
 		boolean addLyrics = (this.settings.isLyricsEnabled() && !track.getLyrics().isEmpty());
 		boolean addChordDiagrams = (this.settings.isChordDiagramEnabled() && !this.settings.isScoreEnabled());
 		boolean addChordNames = (this.settings.isChordNameEnabled() && !this.settings.isScoreEnabled());
@@ -401,6 +420,10 @@ public class LilypondOutputStream {
 			this.writer.println(indent(1) + "\\" + id + "Staff");
 		}
 		if(this.settings.isTablatureEnabled()){
+			if( track.isPercussion() ){
+				this.writer.println(">>");
+				return;
+			}
 			this.writer.println(indent(1) + "\\" + id + "TabStaff");
 		}
 		this.writer.println(">>");
@@ -411,11 +434,15 @@ public class LilypondOutputStream {
 			this.addTempo(measure.getTempo(),indent);
 		}
 
-		if(previous == null || measure.getClef() != previous.getClef()){
-			this.addClef(measure.getClef(),indent);
-		}
-		if(previous == null || measure.getKeySignature() != previous.getKeySignature()){
-			this.addKeySignature(measure.getKeySignature(),indent);
+		// A drum staff brings its own percussion clef and has no key signature. Emitting either
+		// would override it and make the kit read like a transposing instrument.
+		if( !measure.getTrack().isPercussion() ){
+			if(previous == null || measure.getClef() != previous.getClef()){
+				this.addClef(measure.getClef(),indent);
+			}
+			if(previous == null || measure.getKeySignature() != previous.getKeySignature()){
+				this.addKeySignature(measure.getKeySignature(),indent);
+			}
 		}
 
 		if(previous == null || !measure.getTimeSignature().isEqual(previous.getTimeSignature())){
@@ -638,12 +665,19 @@ public class LilypondOutputStream {
 
 				this.addEffectsBeforeNote(note);
 
-				this.addKey(key, (beat.getMeasure().getTrack().getString(note.getString()).getValue() + note.getValue()) );
+				if( beat.getMeasure().getTrack().isPercussion() ){
+					this.writer.print( getLilypondDrumName( note.getValue() ) );
+				}
+				else {
+					this.addKey(key, (beat.getMeasure().getTrack().getString(note.getString()).getValue() + note.getValue()) );
+				}
 				if(this.isAnyTiedTo(note)){
 					this.writer.print("~");
 				}
 
-				this.addString(note.getString());
+				if( !beat.getMeasure().getTrack().isPercussion() ){
+					this.addString(note.getString());
+				}
 				this.addEffectsOnNote(note.getEffect());
 
 				if(size > 1){
@@ -716,6 +750,45 @@ public class LilypondOutputStream {
 
 	private void addString(int string){
 		this.writer.print("\\" + string);
+	}
+
+	/**
+	 * General MIDI percussion to LilyPond drum names.
+	 *
+	 * Values outside the standard kit have no counterpart in \drummode, so they are folded onto the
+	 * snare: the pitch is then wrong but the rhythm of the part stays readable.
+	 */
+	private String getLilypondDrumName(int value){
+		switch( value ){
+			case 35: return "bda";
+			case 36: return "bd";
+			case 37: return "ss";
+			case 38: return "sn";
+			case 39: return "hc";
+			case 40: return "sna";
+			case 41: return "tomfl";
+			case 42: return "hh";
+			case 43: return "tomfh";
+			case 44: return "hhp";
+			case 45: return "toml";
+			case 46: return "hho";
+			case 47: return "tomml";
+			case 48: return "tommh";
+			case 49: return "cymc";
+			case 50: return "tomh";
+			case 51: return "cymr";
+			case 52: return "cymch";
+			case 53: return "rb";
+			case 54: return "tamb";
+			case 55: return "cyms";
+			case 56: return "cb";
+			case 57: return "cymc";
+			case 59: return "cymr";
+			case 60:
+			case 61: return "cl";
+			case 81: return "tri";
+			default: return "sn";
+		}
 	}
 
 	private void addOttava(int ottava){
